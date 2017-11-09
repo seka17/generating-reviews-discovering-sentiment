@@ -207,13 +207,9 @@ class Model(object):
         self.cell_transform = cell_transform
 
     def polarity(self, text):
-        if not isinstance(text, list):
-            text = [text]
-        else:
-            text = [''.join(text)]
         text_features = self.transform(text)
         sentiment_unit = text_features[:, 2388]
-        return float(sentiment_unit)
+        return [float(x) for x in sentiment_unit]
 
 
 if __name__ == '__main__':
