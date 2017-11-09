@@ -1,11 +1,12 @@
+import os
 import time
+
 import numpy as np
 import tensorflow as tf
-
-from tqdm import tqdm
 from sklearn.externals import joblib
+from tqdm import tqdm
 
-from utils import HParams, preprocess, iter_data
+from .utils import HParams, iter_data, preprocess
 
 global nloaded
 nloaded = 0
@@ -36,7 +37,7 @@ def fc(x, nout, act, wn=False, bias=True, scope='fc'):
         z = tf.matmul(x, w)
         if bias:
             b = tf.get_variable("b", [nout], initializer=load_params)
-            z = z+b
+            z = z + b
         h = act(z)
         return h
 
@@ -63,7 +64,7 @@ def mlstm(inputs, c, h, M, ndim, scope='lstm', wn=False):
 
     cs = []
     for idx, x in enumerate(inputs):
-        m = tf.matmul(x, wmx)*tf.matmul(h, wmh)
+        m = tf.matmul(x, wmx) * tf.matmul(h, wmh)
         z = tf.matmul(x, wx) + tf.matmul(m, wh) + b
         i, f, o, u = tf.split(z, 4, 1)
         i = tf.nn.sigmoid(i)
@@ -71,14 +72,14 @@ def mlstm(inputs, c, h, M, ndim, scope='lstm', wn=False):
         o = tf.nn.sigmoid(o)
         u = tf.tanh(u)
         if M is not None:
-            ct = f*c + i*u
-            ht = o*tf.tanh(ct)
+            ct = f * c + i * u
+            ht = o * tf.tanh(ct)
             m = M[:, idx, :]
-            c = ct*m + c*(1-m)
-            h = ht*m + h*(1-m)
+            c = ct * m + c * (1 - m)
+            h = ht * m + h * (1 - m)
         else:
-            c = f*c + i*u
-            h = o*tf.tanh(c)
+            c = f * c + i * u
+            h = o * tf.tanh(c)
         inputs[idx] = h
         cs.append(c)
     cs = tf.stack(cs)
@@ -101,7 +102,7 @@ def model(X, S, M=None, reuse=False):
 
 
 def ceil_round_step(n, step):
-    return int(np.ceil(n/step)*step)
+    return int(np.ceil(n / step) * step)
 
 
 def batch_pad(xs, nbatch, nsteps):
@@ -109,7 +110,7 @@ def batch_pad(xs, nbatch, nsteps):
     mmb = np.ones((nbatch, nsteps, 1), dtype=np.float32)
     for i, x in enumerate(xs):
         l = len(x)
-        npad = nsteps-l
+        npad = nsteps - l
         xmb[i, -l:] = list(x)
         mmb[i, :npad] = 0
     return xmb, mmb
@@ -133,7 +134,8 @@ class Model(object):
             embd_wn=True,
         )
         global params
-        params = [np.load('model/%d.npy'%i) for i in range(15)]
+        params = [np.load('%s/model/%d.npy' %
+                          (os.path.dirname(__file__), i)) for i in range(15)]
         params[2] = np.concatenate(params[2:6], axis=1)
         params[3:6] = []
 
@@ -164,7 +166,7 @@ class Model(object):
             smb = np.zeros((2, n, hps.nhidden), dtype=np.float32)
             for step in range(0, ceil_round_step(maxlen, nsteps), nsteps):
                 start = step
-                end = step+nsteps
+                end = step + nsteps
                 xsubseq = [x[start:end] for x in sorted_xs]
                 ndone = sum([x == b'' for x in xsubseq])
                 offset += ndone
@@ -174,11 +176,11 @@ class Model(object):
                 xmb, mmb = batch_pad(xsubseq, nsubseq, nsteps)
                 for batch in range(0, nsubseq, nbatch):
                     start = batch
-                    end = batch+nbatch
+                    end = batch + nbatch
                     batch_smb = seq_rep(
                         xmb[start:end], mmb[start:end],
-                        smb[:, offset+start:offset+end, :])
-                    smb[:, offset+start:offset+end, :] = batch_smb
+                        smb[:, offset + start:offset + end, :])
+                    smb[:, offset + start:offset + end, :] = batch_smb
             features = smb[0, unsort_idxs, :]
             print('%0.3f seconds to transform %d examples' %
                   (time.time() - tstart, n))
@@ -189,7 +191,7 @@ class Model(object):
             xs = [preprocess(x) for x in xs]
             for xmb in tqdm(
                     iter_data(xs, size=hps.nbatch), ncols=80, leave=False,
-                    total=len(xs)//hps.nbatch):
+                    total=len(xs) // hps.nbatch):
                 smb = np.zeros((2, hps.nbatch, hps.nhidden))
                 n = len(xmb)
                 xmb, mmb = batch_pad(xmb, hps.nbatch, hps.nsteps)
@@ -203,6 +205,15 @@ class Model(object):
 
         self.transform = transform
         self.cell_transform = cell_transform
+
+    def polarity(self, text):
+        if not isinstance(text, list):
+            text = [text]
+        else:
+            text = [''.join(text)]
+        text_features = self.transform(text)
+        sentiment_unit = text_features[:, 2388]
+        return float(sentiment_unit)
 
 
 if __name__ == '__main__':
